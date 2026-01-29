@@ -1,5 +1,5 @@
 #pragma once
-namespace core {
+namespace ir {
 
 	enum class DayCount { ACT360, ACT365F, THIRTY360}; // ACTACT_ISDA
 	enum class BusinessDayConvention { Following, ModifiedFollowing, Preceding };

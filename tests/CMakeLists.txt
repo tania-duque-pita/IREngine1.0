@@ -12,7 +12,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 # Build tests executable from existing test sources
-add_executable(core_tests "core/test_date.cpp")
+add_executable(core_tests "core/test_date.cpp" "utils/test_interpolation.cpp" "utils/test_root_finding.cpp")
 
 # Link tests against the IREngine1.0 library and Catch2 with main
 target_link_libraries(core_tests

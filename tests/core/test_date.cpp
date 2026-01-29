@@ -3,7 +3,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 
-using namespace core;
+using namespace ir;
 
 TEST_CASE("Date::") {
 	Date date = Date::from_ymd(2026, 1, 25);
@@ -173,13 +173,13 @@ TEST_CASE("year_fraction: basic day count conventions") {
 
     // ACT/360
     {
-        Time yf = year_fraction(d1, d2, DayCount::ACT360);
+        double yf = year_fraction(d1, d2, DayCount::ACT360);
         REQUIRE_THAT(yf, Catch::Matchers::WithinAbs(90.0 / 360.0, 1e-12));
     }
 
     // ACT/365F
     {
-        Time yf = year_fraction(d1, d2, DayCount::ACT365F);
+        double yf = year_fraction(d1, d2, DayCount::ACT365F);
         REQUIRE_THAT(yf, Catch::Matchers::WithinAbs(90.0 / 365.0,1e-12));
     }
 
@@ -188,13 +188,13 @@ TEST_CASE("year_fraction: basic day count conventions") {
         Date a = Date::from_ymd(2026, 1, 30);
         Date b = Date::from_ymd(2026, 2, 28);
         // According to implementation: Yd = 0, Md = 1, Dd = 28-30 => 30 -2 = 28 days360
-        Time yf = year_fraction(a, b, DayCount::THIRTY360);
+        double yf = year_fraction(a, b, DayCount::THIRTY360);
         REQUIRE_THAT(yf, Catch::Matchers::WithinAbs(28.0 / 360.0, 1e-12));
     }
 
     // sanity: same day -> zero
     {
-        Time yf = year_fraction(d1, d1, DayCount::ACT365F);
+        double yf = year_fraction(d1, d1, DayCount::ACT365F);
         REQUIRE(yf == 0.0);
     }
 }

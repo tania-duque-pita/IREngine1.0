@@ -6,7 +6,7 @@
 #include "conventions.hpp"
 #include "types.hpp"
 
-namespace core {
+namespace ir {
 
 	class Date {
 	public:
@@ -68,7 +68,7 @@ namespace core {
 	};
 
 	// year fraction
-	Time year_fraction(const Date& start, const Date& end, DayCount dc);
+	double year_fraction(const Date& start, const Date& end, DayCount dc);
 
 
 	// Schedules

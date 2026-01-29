@@ -4,7 +4,7 @@
 
 add_library(IREngine1.0 STATIC
     "core/date.cpp"
-)
+ "utils/interpolation.cpp" "utils/root_finding.cpp" "utils/piecewise_nodes.cpp")
 
 target_include_directories(IREngine1.0 PUBLIC ../include)
 

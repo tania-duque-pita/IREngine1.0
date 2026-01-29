@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 
-namespace core {
+namespace ir{
 
 	enum class ErrorCode {
 		Ok = 0,

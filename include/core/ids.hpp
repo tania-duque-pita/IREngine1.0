@@ -2,7 +2,7 @@
 #include <string>
 #include <utility>
 
-namespace core {
+namespace ir {
 
 	struct CurveId {
 		std::string value;

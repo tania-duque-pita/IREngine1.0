@@ -6,7 +6,7 @@
 #include <sstream>
 #include <algorithm>
 
-namespace core {
+namespace ir {
 
     // Operator overloading
     Date operator+(const Date& d, std::chrono::days dd) { return Date(d.raw() + dd); }
@@ -262,7 +262,7 @@ namespace core {
     }
 
     // year fraction implementations
-    Time year_fraction(const Date& start, const Date& end, DayCount dc)
+    double year_fraction(const Date& start, const Date& end, DayCount dc)
     {
         using namespace std::chrono;
 
@@ -276,9 +276,9 @@ namespace core {
 
         switch (dc) {
         case DayCount::ACT360:
-            return static_cast<Time>(days) / 360.0;
+            return static_cast<double>(days) / 360.0;
         case DayCount::ACT365F:
-            return static_cast<Time>(days) / 365.0;
+            return static_cast<double>(days) / 365.0;
         case DayCount::THIRTY360: {
             year_month_day y1{ s }, y2{ e };
             int Y1 = static_cast<int>(y1.year());
@@ -293,12 +293,12 @@ namespace core {
             if (D2 == 31 && D1 == 30) D2 = 30;
 
             int days360 = (Y2 - Y1) * 360 + (M2 - M1) * 30 + (D2 - D1);
-            return static_cast<Time>(days360) / 360.0;
+            return static_cast<double>(days360) / 360.0;
         }
 
         default:
             // fallback
-            return static_cast<Time>(days) / 365.0;
+            return static_cast<double>(days) / 365.0;
         }
     }
 
@@ -365,4 +365,4 @@ namespace core {
     }
 
 
-} // namespace core
+} // namespace ir

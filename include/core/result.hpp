@@ -2,7 +2,7 @@
 #include "error.hpp"
 #include <variant>
 
-namespace core {
+namespace ir {
 
     template <class T>
     class Result {
@@ -19,4 +19,4 @@ namespace core {
         const Error& error() const { return std::get<Error>(v_); }
     };
 
-} // namespace core
+} // namespace ir
