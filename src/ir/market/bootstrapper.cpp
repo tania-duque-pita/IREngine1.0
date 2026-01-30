@@ -38,10 +38,10 @@ namespace ir::market {
 
         // Nodes: start with (t=0, df=1)
         ir::utils::Nodes1D nodes;
-        {
-            auto r0 = nodes.push_back(0.0, 1.0);
-            if (!r0.has_value()) return r0.error();
-        }
+        // {
+        auto r0 = nodes.push_back(0.0, 1.0);
+          //  if (!r0.has_value()) return r0.error();
+        //}
 
         // Bootstrapping loop
         for (const auto& h : sorted) {
