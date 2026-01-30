@@ -1,7 +1,7 @@
 #pragma once
 #include <functional>
-#include "core/result.hpp"
-#include "core/types.hpp"
+#include "ir/core/result.hpp"
+
 
 namespace ir::utils {
 

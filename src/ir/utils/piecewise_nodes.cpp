@@ -1,8 +1,8 @@
-#include "utils/piecewise_nodes.hpp"
+#include "ir/utils/piecewise_nodes.hpp"
 
 #include <cmath>
-#include "core/error.hpp"
-#include "utils/math.hpp"
+#include "ir/core/error.hpp"
+#include "ir/utils/math.hpp"
 
 namespace ir::utils {
 

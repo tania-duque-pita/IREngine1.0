@@ -1,8 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstddef>
-#include "core/types.hpp"
-#include "core/result.hpp"
+#include "ir/core/result.hpp"
 
 namespace ir::utils {
 

@@ -1,9 +1,10 @@
-#include "utils/root_finding.hpp"
+#include "ir/utils/root_finding.hpp"
 
 #include <cmath>
 #include <algorithm>
-#include "core/error.hpp"
-#include "utils/math.hpp"
+#include "ir/core/error.hpp"
+#include "ir/utils/math.hpp"
+#include "ir/core/result.hpp"
 
 namespace ir::utils {
 

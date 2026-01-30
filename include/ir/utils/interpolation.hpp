@@ -1,16 +1,14 @@
 #pragma once
 #include <vector>
 #include <stdexcept>
-//#include "core/types.hpp"
-#include "../core/result.hpp"
-#include "../core/types.hpp"
+#include "ir/core/result.hpp"
 
 namespace ir::utils {
 
     enum class InterpType {
         Flat,        // constant beyond ends
         Linear,       // linear interpolation
-        LogLinear      // 
+        LogLinear      // log-linear interpolation
     };
 
     struct Interp1DData {
@@ -30,9 +28,6 @@ namespace ir::utils {
         std::vector<double> ys_;
         InterpType ex_;
 
-        //// Optional: for diagnostics / risk
-        //virtual double left_endpoint() const = 0;
-        //virtual double right_endpoint() const = 0;
     };
 
     // ------------------------- Linear -------------------------
@@ -41,8 +36,6 @@ namespace ir::utils {
         LinearInterpolator(Interp1DData data);
 
         double value(double x) const override;
-        //double left_endpoint() const override { return xs_.front(); }
-        //double right_endpoint() const override { return xs_.back(); }
 
     };
 
@@ -55,8 +48,6 @@ namespace ir::utils {
         LogLinearInterpolator(Interp1DData data);
 
         double value(double x) const override;
-        //double left_endpoint() const override { return xs_.front(); }
-        //double right_endpoint() const override { return xs_.back(); }
 
     private:
         std::vector<double> log_ys_;

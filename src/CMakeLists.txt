@@ -2,9 +2,9 @@
 #
 # Build a static library named IREngine1.0 so tests can link against IREngine1.0.lib
 
-add_library(IREngine1.0 STATIC
-    "core/date.cpp"
- "utils/interpolation.cpp" "utils/root_finding.cpp" "utils/piecewise_nodes.cpp")
+add_library(IREngine1.0 STATIC 
+    "ir/core/date.cpp" "ir/utils/interpolation.cpp" "ir/utils/root_finding.cpp" "ir/utils/piecewise_nodes.cpp" 
+    "ir/market/curves.cpp" "ir/market/quotes.cpp" "ir/market/bootstrapper.cpp" "ir/market/rate_helpers.cpp")
 
 target_include_directories(IREngine1.0 PUBLIC ../include)
 

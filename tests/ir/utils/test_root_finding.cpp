@@ -1,5 +1,5 @@
-#include "../../include/utils/root_finding.hpp"
-#include "../../include/core/error.hpp"
+#include "ir/utils/root_finding.hpp"
+#include "ir/core/error.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>

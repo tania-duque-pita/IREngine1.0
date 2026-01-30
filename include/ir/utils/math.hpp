@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include "core/types.hpp"
 
 namespace ir::utils {
 
@@ -20,9 +19,5 @@ namespace ir::utils {
 	inline T clamp(T x, T lo, T hi) {
 		return std::max(lo, std::min(x, hi));
 	}
-
-	//inline bool is_finite(double x) {
-	//	return std::isfinite(x);
-	//}
 
 }

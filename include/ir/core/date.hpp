@@ -4,7 +4,6 @@
 #include <string>
 #include "result.hpp"
 #include "conventions.hpp"
-#include "types.hpp"
 
 namespace ir {
 

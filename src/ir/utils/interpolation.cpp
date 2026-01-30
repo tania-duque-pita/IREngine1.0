@@ -1,11 +1,11 @@
-#include "utils/interpolation.hpp"
+#include "ir/utils/interpolation.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
-#include "core/error.hpp"
-#include "utils/math.hpp"
+#include "ir/core/error.hpp"
+#include "ir/utils/math.hpp"
 
 namespace ir::utils {
 
