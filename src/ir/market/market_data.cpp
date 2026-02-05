@@ -1,13 +1,9 @@
 #include "ir/market/market_data.hpp"
-
+#include "ir/market/quotes.hpp"
 #include <stdexcept>
 #include <utility>
 
 namespace ir::market {
-
-    MarketData::MarketData(ir::Date asof)
-        : asof_(asof) {
-    }
 
     // -------------------- Curves --------------------
 
@@ -55,4 +51,17 @@ namespace ir::market {
         return it->second;
     }
 
+    // --------------------- Fixings ---------------------
+    std::optional<double> MarketData::fixings(const ir::IndexId& index, const ir::Date& d) const
+    {
+        if (fixings_) {
+            // get returns std::optional<double>
+            const auto& result = fixings_->get(index, d);
+            if (result) {
+                return result;
+            }
+        }
+
+        return std::nullopt;
+    }
 } // namespace ir::market

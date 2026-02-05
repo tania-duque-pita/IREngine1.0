@@ -277,7 +277,7 @@ namespace ir {
         switch (dc) {
         case DayCount::ACT360:
             return static_cast<double>(days) / 360.0;
-        case DayCount::ACT365F:
+        case DayCount::ACT365:
             return static_cast<double>(days) / 365.0;
         case DayCount::THIRTY360: {
             year_month_day y1{ s }, y2{ e };

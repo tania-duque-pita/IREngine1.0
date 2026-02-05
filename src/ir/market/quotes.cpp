@@ -16,7 +16,7 @@ namespace ir::market {
 
 	std::optional<double> FixingStore::get(const ir::IndexId& index, const ir::Date& d) const {
 		const auto k = key(index, d);
-		std::unordered_map<std::string,double>::const_iterator it = fixings_.find(k);
+		const auto it = fixings_.find(k);
 		if (it == fixings_.end()) return std::nullopt;
 		return it->second;
 	}

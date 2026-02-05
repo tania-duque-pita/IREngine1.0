@@ -179,7 +179,7 @@ TEST_CASE("year_fraction: basic day count conventions") {
 
     // ACT/365F
     {
-        double yf = year_fraction(d1, d2, DayCount::ACT365F);
+        double yf = year_fraction(d1, d2, DayCount::ACT365);
         REQUIRE_THAT(yf, Catch::Matchers::WithinAbs(90.0 / 365.0,1e-12));
     }
 
@@ -194,7 +194,7 @@ TEST_CASE("year_fraction: basic day count conventions") {
 
     // sanity: same day -> zero
     {
-        double yf = year_fraction(d1, d1, DayCount::ACT365F);
+        double yf = year_fraction(d1, d1, DayCount::ACT365);
         REQUIRE(yf == 0.0);
     }
 }

@@ -22,7 +22,7 @@ namespace ir::market {
     };
 
     // ---------- OIS helper (discount curve bootstrap) ----------
-    class OisSwapHelper final : public RateHelper {
+    class OisSwapHelper : public RateHelper {
     public:
         struct Config {
             ir::DayCount fixed_dc{ ir::DayCount::ACT360 };
@@ -52,7 +52,7 @@ namespace ir::market {
     };
 
     // ---------- FRA helper (forward curve bootstrap) ----------
-    class FraHelper final : public RateHelper {
+    class FraHelper : public RateHelper {
     public:
         struct Config {
             ir::DayCount dc{ ir::DayCount::ACT360 };
@@ -62,12 +62,12 @@ namespace ir::market {
             ir::Date end,
             double fra_rate,
             Config cfg) 
-            : start_(start), end_(end), fra_rate_(fra_rate), cfg_(std::move(cfg)) 
+            : start_(start), end_(end), par_fra_rate_(fra_rate), cfg_(std::move(cfg)) 
         {
         }
 
         ir::Date maturity() const override { return end_; }
-        double market_quote() const override { return fra_rate_; }
+        double market_quote() const override { return par_fra_rate_; }
 
         // Implied FRA rate given forward curve (pseudo-DF) and discount curve (for PV consistency if needed)
         ir::Result<double> implied_fra_rate(const PiecewiseForwardCurve& fwd) const;
@@ -75,7 +75,7 @@ namespace ir::market {
     private:
         ir::Date start_;
         ir::Date end_;
-        double fra_rate_;
+        double par_fra_rate_;
         Config cfg_;
     };
 
@@ -83,7 +83,7 @@ namespace ir::market {
     class IrsHelper final : public RateHelper {
     public:
         struct Config {
-            ir::DayCount fixed_dc{ ir::DayCount::ACT365F };
+            ir::DayCount fixed_dc{ ir::DayCount::ACT365 };
             ir::Frequency fixed_freq{ ir::Frequency::Annual };
             ir::DayCount float_dc{ ir::DayCount::ACT360 };
             ir::Frequency float_freq{ ir::Frequency::Quarterly };

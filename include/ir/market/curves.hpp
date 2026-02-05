@@ -47,7 +47,7 @@ namespace ir::market {
 	class PiecewiseDiscountCurve final : public DiscountCurve {
 	public:
 		struct Config {
-			ir::DayCount dc{ ir::DayCount::ACT365F };
+			ir::DayCount dc{ ir::DayCount::ACT365 };
 			ir::Calendar calendar{};
 			ir::BusinessDayConvention bdc{ ir::BusinessDayConvention::ModifiedFollowing };
 			// For conversion Date->t (year fraction from asof)
@@ -75,7 +75,7 @@ namespace ir::market {
 	class PiecewiseForwardCurve final : public ForwardCurve {
 	public:
 		struct Config {
-			ir::DayCount dc{ ir::DayCount::ACT365F };
+			ir::DayCount dc{ ir::DayCount::ACT365 };
 		};
 
 		PiecewiseForwardCurve(const ir::Date& asof, Config cfg);
@@ -106,7 +106,7 @@ namespace ir::market {
 		CurveType type{ CurveType::Discount };
 
 		ir::Date asof{};
-		ir::DayCount dc{ ir::DayCount::ACT365F };
+		ir::DayCount dc{ ir::DayCount::ACT365 };
 		ir::Calendar calendar{};
 		ir::BusinessDayConvention bdc{ ir::BusinessDayConvention::ModifiedFollowing };
 

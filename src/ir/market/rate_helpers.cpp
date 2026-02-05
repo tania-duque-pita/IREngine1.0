@@ -15,6 +15,8 @@ namespace ir::market {
         case ir::Frequency::SemiAnnual: return ir::Tenor{ 6, ir::TenorUnit::Months };
         case ir::Frequency::Quarterly:  return ir::Tenor{ 3, ir::TenorUnit::Months };
         case ir::Frequency::Monthly:    return ir::Tenor{ 1, ir::TenorUnit::Months };
+        case ir::Frequency::Weekly:     return ir::Tenor{ 1, ir::TenorUnit::Weeks };
+        case ir::Frequency::Daily:      return ir::Tenor{ 1, ir::TenorUnit::Days };
         default:
             return ir::Error::make(ir::ErrorCode::InvalidArgument,
                 "Unsupported Frequency in tenor_from_frequency.");
