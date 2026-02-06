@@ -291,12 +291,12 @@ TEST_CASE("CurveBootstrapper::bootstrap_forward_curve - IRS helpers", "[bootstra
     auto fwd_curve = result.value();
     REQUIRE(fwd_curve != nullptr);
 
-    // Verify we can compute forward rates
+    // Verify we can compute forward rates and validate expected value
     double fwd_1y = fwd_curve->forward_rate(
         asof,
         Date::from_ymd(2027, 1, 1),
-        DayCount::ACT360
+        DayCount::ACT365
     );
     REQUIRE_THAT(fwd_1y, Catch::Matchers::WithinAbs(0.029, 1e-5));
-    // REQUIRE(fwd_1y < 0.10);
+
 }
