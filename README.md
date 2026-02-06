@@ -10,8 +10,7 @@ The purpose of this repository is to showcase:
 
 > **Status (in progress):** Implemented up to **Market data processing** (curves, quotes, bootstrapping, fixings).  
 > Planned next:
-> - Cashflow and Product Pricing
-> - Valuation Framework
+> - Cashflow and Product Pricing at t0
 > - IR Simulation (HW)
 > - Market Risk Framework (VaR)
 
@@ -42,6 +41,9 @@ Market layer components:
   - OIS discount curve bootstrapping via `OisSwapHelper`
   - Forward curve bootstrapping via `FraHelper` / `IrsHelper`
 - `MarketData` snapshot container for curves/quotes/fixings
+
+### Unit tests (`tests/ir`)
+Unit tests for key functions under Core, Utils, and Market.
 
 ---
 
