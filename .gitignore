@@ -431,3 +431,4 @@ FodyWeavers.xsd
 build/
 cmake-build-*/
 out/
+/.github/copilot-instructions.md
