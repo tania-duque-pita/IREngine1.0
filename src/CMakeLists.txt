@@ -1,10 +1,11 @@
-﻿# CMakeList.txt : CMake project for IREngine1.0, include source and define
-#
-# Build a static library named IREngine1.0 so tests can link against IREngine1.0.lib
+﻿# CMakeList.txt : CMake project for IREngine1.0
 
 add_library(IREngine1.0 STATIC 
     "ir/core/date.cpp" "ir/utils/interpolation.cpp" "ir/utils/root_finding.cpp" "ir/utils/piecewise_nodes.cpp" 
-    "ir/market/curves.cpp" "ir/market/quotes.cpp" "ir/market/bootstrapper.cpp" "ir/market/rate_helpers.cpp" "ir/market/market_data.cpp")
+    "ir/market/curves.cpp" "ir/market/quotes.cpp" "ir/market/bootstrapper.cpp" "ir/market/rate_helpers.cpp" 
+    "ir/market/market_data.cpp" "demo/demo_bootstrapper.cpp")
+
+add_subdirectory(demo)
 
 target_include_directories(IREngine1.0 PUBLIC ../include)
 

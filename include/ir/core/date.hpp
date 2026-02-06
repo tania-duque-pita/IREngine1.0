@@ -1,9 +1,11 @@
 #pragma once
 
 #include <chrono>
+#include <format>
 #include <string>
 #include "result.hpp"
 #include "conventions.hpp"
+
 
 namespace ir {
 
@@ -17,7 +19,7 @@ namespace ir {
 
 		static Date from_ymd(int y, unsigned m, unsigned d) { return Date{ std::chrono::year{y} / m / d }; }
 		static Result<Date> parse_iso(const std::string_view& iso); // Assumes format "YYYY-MM-DD"
-		std::string to_iso() const { return std::format("%Y-%m-%d", d_); }
+		std::string to_iso() const { return std::format("{:%Y-%m-%d}", d_); }
 
 		int year() const;
 		unsigned month() const;
