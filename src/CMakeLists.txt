@@ -1,16 +1,20 @@
-﻿# CMakeList.txt : CMake project for IREngine1.0
+﻿# Collect all library sources
+file(GLOB_RECURSE LIB_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/ir/*.cpp"
+)
 
-add_library(IREngine1.0 STATIC 
-    "ir/core/date.cpp" "ir/utils/interpolation.cpp" "ir/utils/root_finding.cpp" "ir/utils/piecewise_nodes.cpp" 
-    "ir/market/curves.cpp" "ir/market/quotes.cpp" "ir/market/bootstrapper.cpp" "ir/market/rate_helpers.cpp" 
-    "ir/market/market_data.cpp" "demo/demo_bootstrapper.cpp")
+# Create the library
+add_library(IREngine1.0 STATIC ${LIB_SOURCES})
 
+# Set include directories
+target_include_directories(IREngine1.0
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+# Link system libraries if needed
+target_compile_features(IREngine1.0 PUBLIC cxx_std_20)
+
+# Add demo executable
 add_subdirectory(demo)
-
-target_include_directories(IREngine1.0 PUBLIC ../include)
-
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET IREngine1.0 PROPERTY CXX_STANDARD 20)
-  set_property(TARGET IREngine1.0 PROPERTY CXX_STANDARD_REQUIRED ON)
-  set_property(TARGET IREngine1.0 PROPERTY CXX_EXTENSIONS OFF)
-endif()

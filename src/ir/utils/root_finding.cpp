@@ -8,10 +8,10 @@
 
 namespace ir::utils {
 
-    static bool close_enough(double a, double b, const RootFindOptions& opts) {
-        const double tol = std::max(opts.tol_abs, opts.tol_rel * std::max(std::fabs(a), std::fabs(b)));
-        return std::fabs(a - b) <= tol;
-    }
+    //static bool close_enough(double a, double b, const RootFindOptions& opts) {
+    //    const double tol = std::max(opts.tol_abs, opts.tol_rel * std::max(std::fabs(a), std::fabs(b)));
+    //    return std::fabs(a - b) <= tol;
+    //}
 
     Result<RootFindResult> brent(
         const std::function<double(double)>& f,
