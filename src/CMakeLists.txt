@@ -4,7 +4,7 @@ file(GLOB_RECURSE LIB_SOURCES
 )
 
 # Create the library
-add_library(IREngine1.0 STATIC ${LIB_SOURCES})
+add_library(IREngine1.0 STATIC ${LIB_SOURCES}) # "ir/instruments/coupons.cpp" "ir/instruments/leg_builder.cpp")
 
 # Set include directories
 target_include_directories(IREngine1.0

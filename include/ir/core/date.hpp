@@ -37,6 +37,7 @@ namespace ir {
 	// Operator overloading
 	Date operator+(const Date& d, std::chrono::days dd);
 	bool operator<(const Date& a, const Date& b);
+	bool operator <=(const Date& a, const Date& b);
 	std::chrono::days operator-(const Date& a, const Date& b);
 
 
