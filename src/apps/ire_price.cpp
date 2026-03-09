@@ -1,27 +1,28 @@
 #include <filesystem>
-#include <iostream>
 #include <fstream>
-#include <memory>
+#include <iostream>
+#include <stdexcept>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "ir/core/conventions.hpp"
 #include "ir/core/date.hpp"
-
-
+#include "ir/io/csv_io.hpp"
 #include "ir/io/deal_io.hpp"
 #include "ir/io/market_io.hpp"
-#include "ir/io/csv_io.hpp"
-
 #include "ir/market/market_data.hpp"
 #include "ir/pricers/swap_pricer.hpp"
 #include "ir/instruments/leg_builder.hpp"
-#include "ir/instruments/products.hpp"
 
 namespace fs = std::filesystem;
 
 static ir::Tenor parse_tenor_or_throw(const std::string& s) {
     auto t = ir::Tenor::parse(s);
-    if (!t.has_value()) throw std::runtime_error(t.error().message);
+    if (!t.has_value()) {
+        throw std::runtime_error(t.error().message);
+    }
     return t.value();
 }
 
@@ -31,114 +32,179 @@ static ir::instruments::PayReceive to_instr_dir(ir::io::PayReceive d) {
         : ir::instruments::PayReceive::Receive;
 }
 
-static ir::DayCount to_dc(ir::DayCount dc) { return dc; }
+static std::string to_string_leg_type(ir::io::LegType t) {
+    switch (t) {
+    case ir::io::LegType::Fixed: return "FIXED";
+    case ir::io::LegType::Ibor:  return "IBOR";
+    case ir::io::LegType::Rfr:   return "RFR";
+    default:                     return "UNKNOWN";
+    }
+}
 
-static std::string raw_github_url(const std::string& owner_repo, const std::string& folder, const std::string& file) {
-    // https://raw.githubusercontent.com/<owner_repo>/main/<folder>/<file>
-    return "https://raw.githubusercontent.com/" + owner_repo + "/main/" + folder + "/" + file;
+static std::string to_string_pay_receive(ir::io::PayReceive d) {
+    return (d == ir::io::PayReceive::Pay) ? "PAY" : "RECEIVE";
+}
+
+static fs::path find_repo_root_from_cwd() {
+    fs::path p = fs::current_path();
+
+    while (!p.empty()) {
+        const bool has_cmake = fs::exists(p / "CMakeLists.txt");
+        const bool has_src = fs::exists(p / "src");
+        const bool has_include = fs::exists(p / "include");
+        const bool has_example = fs::exists(p / "example");
+
+        if (has_cmake && has_src && has_include && has_example) {
+            return p;
+        }
+
+        fs::path parent = p.parent_path();
+        if (parent == p) {
+            break;
+        }
+        p = parent;
+    }
+
+    throw std::runtime_error(
+        "Could not locate repository root from current working directory.");
+}
+
+static fs::path resolve_input_folder(int argc, char** argv) {
+    if (argc < 2) {
+        throw std::runtime_error(
+            "Usage:\n"
+            "  ire_price <folder_path>\n"
+            "  ire_price --example <folder_name>\n");
+    }
+
+    const std::string mode = argv[1];
+
+    // Existing local-folder mode
+    if (mode != "--example") {
+        return fs::path(argv[1]);
+    }
+
+    // Repo-relative example mode
+    if (argc < 3) {
+        throw std::runtime_error("Usage: ire_price --example <folder_name>");
+    }
+
+    const std::string folder_name = argv[2];
+    const fs::path repo_root = find_repo_root_from_cwd();
+    const fs::path example_folder = repo_root / "example" / folder_name;
+
+    if (!fs::exists(example_folder)) {
+        throw std::runtime_error(
+            "Example folder does not exist: " + example_folder.string());
+    }
+
+    return example_folder;
+}
+
+struct BuiltLegEntry {
+    ir::io::DealSpec spec;
+    ir::instruments::Leg leg;
+};
+
+struct ResultCashflowRow {
+    std::string leg_id;
+    std::string leg_type;
+    std::string pay_receive;
+    std::string pay_date;
+    double amount{ 0.0 };
+    double df{ 0.0 };
+    double pv{ 0.0 };
+};
+
+static void write_result_cashflows_csv(
+    const fs::path& out_file,
+    const std::vector<ResultCashflowRow>& rows) {
+
+    std::ofstream out(out_file);
+    if (!out) {
+        throw std::runtime_error(
+            "Could not open output file for writing: " + out_file.string());
+    }
+
+    out << "Leg_ID,LegType,PayReceive,Pay_Date,Amount,DF,PV\n";
+    for (const auto& r : rows) {
+        out << r.leg_id << ","
+            << r.leg_type << ","
+            << r.pay_receive << ","
+            << r.pay_date << ","
+            << r.amount << ","
+            << r.df << ","
+            << r.pv << "\n";
+    }
+}
+
+static void write_result_csv(
+    const fs::path& out_file,
+    const ir::Date& valuation_date,
+    double total_pv,
+    std::size_t num_legs,
+    std::size_t num_cashflows) {
+
+    std::ofstream out(out_file);
+    if (!out) {
+        throw std::runtime_error(
+            "Could not open output file for writing: " + out_file.string());
+    }
+
+    out << "ValuationDate,NumLegs,NumCashflows,PV\n";
+    out << valuation_date.to_iso() << ","
+        << num_legs << ","
+        << num_cashflows << ","
+        << total_pv << "\n";
 }
 
 int main(int argc, char** argv) {
     try {
-        if (argc < 2) {
-            std::cerr << "Usage:\n"
-                << "  ire_price <folder_path>\n"
-                << "  ire_price --github <owner/repo> <folder_in_repo>\n";
-            return 1;
-        }
-
-        bool github_mode = false;
-        std::string owner_repo, repo_folder;
-        fs::path folder;
-
-        if (std::string(argv[1]) == "--github") {
-            if (argc < 4) {
-                std::cerr << "Usage: ire_price --github <owner/repo> <folder_in_repo>\n";
-                return 1;
-            }
-            github_mode = true;
-            owner_repo = argv[2];
-            repo_folder = argv[3];
-        }
-        else {
-            folder = fs::path(argv[1]);
-        }
+        const fs::path folder = resolve_input_folder(argc, argv);
 
         // -------- Load deal_data.csv --------
-        ir::io::DealSpec deal;
-
-        if (!github_mode) {
-            auto dealRes = ir::io::read_deal_data_csv((folder / "deal_data.csv").string());
-            if (!dealRes.has_value()) throw std::runtime_error(dealRes.error().message);
-            deal = dealRes.value();
+        auto dealRes = ir::io::read_deal_data_csv((folder / "deal_data.csv").string());
+        if (!dealRes.has_value()) {
+            throw std::runtime_error(dealRes.error().message);
         }
-        else {
-            auto text = ir::io::fetch_text_from_url(raw_github_url(owner_repo, repo_folder, "deal_data.csv"));
-            if (!text.has_value()) throw std::runtime_error(text.error().message);
-            auto tab = ir::io::read_csv_text(text.value());
-            if (!tab.has_value()) throw std::runtime_error(tab.error().message);
+        ir::io::DealSpec deal = dealRes.value();
 
-            // quick reuse: write to temp + parse (keeps it minimal)
-            const std::string tmp = "ire_tmp_deal.csv";
-            { std::ofstream out(tmp); out << text.value(); }
-            auto dealRes = ir::io::read_deal_data_csv(tmp);
-            if (!dealRes.has_value()) throw std::runtime_error(dealRes.error().message);
-            deal = dealRes.value();
+        if (deal.legs.empty()) {
+            throw std::runtime_error("Deal has no legs.");
         }
 
-        if (deal.legs.empty()) throw std::runtime_error("Deal has no legs.");
-
-        // Use COB from first leg as MarketData asof
-        ir::Date asof = deal.legs.front().cob;
+        // -------- Market setup --------
+        const ir::Date asof = deal.legs.front().cob;
         ir::market::MarketData md(asof);
         ir::market::FixingStore fixings;
 
-        // -------- Load discount curve (mandatory) --------
         const auto& discount_id = deal.legs.front().discount_curve;
 
-        if (!github_mode) {
-            auto r = ir::io::load_discount_curve_nodes_csv((folder / "discount.csv").string(), discount_id, md);
-            if (!r.has_value()) throw std::runtime_error(r.error().message);
-        }
-        else {
-            auto txt = ir::io::fetch_text_from_url(raw_github_url(owner_repo, repo_folder, "discount.csv"));
-            if (!txt.has_value()) throw std::runtime_error(txt.error().message);
-            const std::string tmp = "ire_tmp_discount.csv";
-            { std::ofstream out(tmp); out << txt.value(); }
-            auto r = ir::io::load_discount_curve_nodes_csv(tmp, discount_id, md);
-            if (!r.has_value()) throw std::runtime_error(r.error().message);
+        {
+            auto r = ir::io::load_discount_curve_nodes_csv(
+                (folder / "discount.csv").string(), discount_id, md);
+            if (!r.has_value()) {
+                throw std::runtime_error(r.error().message);
+            }
         }
 
-        // -------- Load forward curves and fixings (as needed) --------
-        // Map FixingsID -> IndexId (from deal leg)
         std::unordered_map<std::string, ir::IndexId> fixings_map;
+        std::unordered_map<std::string, bool> loaded_fwd;
 
         for (const auto& leg : deal.legs) {
             if (leg.type == ir::io::LegType::Ibor || leg.type == ir::io::LegType::Rfr) {
-                // forward curve mandatory for float
                 if (leg.fwd_curve.value.empty()) {
-                    throw std::runtime_error("Floating leg missing FwdCurveID: " + leg.leg_id);
+                    throw std::runtime_error(
+                        "Floating leg missing FwdCurveID: " + leg.leg_id);
                 }
 
-                // Load forward curve file named "<FwdCurveID>.csv" or "fwd_1.csv"? Choose your convention:
-                // Here: we assume file name equals FwdCurveID lowercased is tricky,
-                // so simplest: FwdCurveID is the filename without extension, e.g. "fwd_1".
                 const std::string fwd_file = leg.fwd_curve.value + ".csv";
 
-                // Load once
-                static std::unordered_map<std::string, bool> loaded_fwd;
                 if (!loaded_fwd[leg.fwd_curve.value]) {
-                    if (!github_mode) {
-                        auto r = ir::io::load_forward_curve_nodes_csv((folder / fwd_file).string(), leg.fwd_curve, md);
-                        if (!r.has_value()) throw std::runtime_error(r.error().message);
-                    }
-                    else {
-                        auto txt = ir::io::fetch_text_from_url(raw_github_url(owner_repo, repo_folder, fwd_file));
-                        if (!txt.has_value()) throw std::runtime_error(txt.error().message);
-                        const std::string tmp = "ire_tmp_" + leg.fwd_curve.value + ".csv";
-                        { std::ofstream out(tmp); out << txt.value(); }
-                        auto r = ir::io::load_forward_curve_nodes_csv(tmp, leg.fwd_curve, md);
-                        if (!r.has_value()) throw std::runtime_error(r.error().message);
+                    auto r = ir::io::load_forward_curve_nodes_csv(
+                        (folder / fwd_file).string(), leg.fwd_curve, md);
+                    if (!r.has_value()) {
+                        throw std::runtime_error(r.error().message);
                     }
                     loaded_fwd[leg.fwd_curve.value] = true;
                 }
@@ -149,35 +215,24 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Load fixings if file exists (optional)
         for (const auto& [fix_id, index] : fixings_map) {
-            const std::string fx_file = fix_id + ".csv";
-
-            if (!github_mode) {
-                fs::path p = folder / fx_file;
-                if (fs::exists(p)) {
-                    auto r = ir::io::load_fixings_csv(p.string(), index, fixings);
-                    if (!r.has_value()) throw std::runtime_error(r.error().message);
-                }
-            }
-            else {
-                // try fetch; if missing, ignore
-                auto txt = ir::io::fetch_text_from_url(raw_github_url(owner_repo, repo_folder, fx_file));
-                if (txt.has_value()) {
-                    const std::string tmp = "ire_tmp_" + fix_id + ".csv";
-                    { std::ofstream out(tmp); out << txt.value(); }
-                    auto r = ir::io::load_fixings_csv(tmp, index, fixings);
-                    if (!r.has_value()) throw std::runtime_error(r.error().message);
+            const fs::path p = folder / (fix_id + ".csv");
+            if (fs::exists(p)) {
+                auto r = ir::io::load_fixings_csv(p.string(), index, fixings);
+                if (!r.has_value()) {
+                    throw std::runtime_error(r.error().message);
                 }
             }
         }
+
         md.set_fixings(&fixings);
 
-        // -------- Build schedules and legs --------
+        // -------- Build all legs --------
         ir::Calendar cal;
         auto bdc = ir::BusinessDayConvention::ModifiedFollowing;
 
-        std::vector<std::pair<std::string, ir::instruments::Leg>> built_legs;
+        std::vector<BuiltLegEntry> built_legs;
+        built_legs.reserve(deal.legs.size());
 
         for (const auto& leg : deal.legs) {
             ir::ScheduleConfig sc;
@@ -189,7 +244,6 @@ int main(int argc, char** argv) {
             sc.rule = ir::DateGenerationRule::Backward;
 
             auto sched = ir::make_schedule(sc);
-            //if (!sched) throw std::runtime_error();
 
             if (leg.type == ir::io::LegType::Fixed) {
                 ir::instruments::FixedLegConfig cfg;
@@ -200,8 +254,7 @@ int main(int argc, char** argv) {
                 auto L = ir::instruments::LegBuilder::build_fixed_leg(
                     to_instr_dir(leg.dir), sched, cfg);
 
-                built_legs.push_back({ leg.leg_id, std::move(L) });
-
+                built_legs.push_back(BuiltLegEntry{ leg, std::move(L) });
             }
             else if (leg.type == ir::io::LegType::Ibor) {
                 ir::instruments::IborLegConfig cfg;
@@ -214,10 +267,9 @@ int main(int argc, char** argv) {
                 auto L = ir::instruments::LegBuilder::build_ibor_leg(
                     to_instr_dir(leg.dir), sched, cfg, cal, bdc);
 
-                built_legs.push_back({ leg.leg_id, std::move(L) });
-
+                built_legs.push_back(BuiltLegEntry{ leg, std::move(L) });
             }
-            else { // RFR
+            else {
                 ir::instruments::RfrLegConfig cfg;
                 cfg.notional = leg.notional;
                 cfg.spread = leg.spread;
@@ -227,72 +279,69 @@ int main(int argc, char** argv) {
                 auto L = ir::instruments::LegBuilder::build_rfr_compound_leg(
                     to_instr_dir(leg.dir), sched, cfg);
 
-                built_legs.push_back({ leg.leg_id, std::move(L) });
+                built_legs.push_back(BuiltLegEntry{ leg, std::move(L) });
             }
         }
 
-        if (built_legs.size() != 2) {
-            std::cerr << "Note: current demo app expects 2 legs. Found " << built_legs.size() << ".\n";
-        }
-
-        // -------- Build product (IRS or OIS) --------
-        // Simple heuristic: if any leg is RFR => OisSwap, else IRS.
-        bool has_rfr = false;
-        for (const auto& leg : deal.legs) if (leg.type == ir::io::LegType::Rfr) has_rfr = true;
-
-        ir::instruments::TradeInfo ti;
-        ti.trade_id = "DEMO";
-        ti.trade_date = asof;
-        ti.start_date = deal.legs.front().start;
-        ti.end_date = deal.legs.front().end;
-
-        ir::pricers::PricingContext ctx;
-        ctx.valuation_date = asof;
-        ctx.discount_curve = discount_id;
-        ctx.framework = ir::pricers::PricingFramework::MultiCurve;
-
-        // Pick forward IDs from the float leg (if any)
-        for (const auto& leg : deal.legs) {
-            if (leg.type == ir::io::LegType::Ibor) ctx.ibor_forward_curve = leg.fwd_curve;
-            if (leg.type == ir::io::LegType::Rfr)  ctx.rfr_forward_curve = leg.fwd_curve;
-        }
-
+        // -------- Price each leg independently --------
         ir::pricers::MultiCurveSwapPricer pricer;
 
-        ir::pricers::PricingResult result;
+        double total_pv = 0.0;
+        std::vector<ResultCashflowRow> cashflow_rows;
 
-        if (!has_rfr) {
-            ir::instruments::InterestRateSwap swap(ti, built_legs[0].second, built_legs[1].second);
-            auto r = pricer.price(swap, md, ctx);
-            if (!r.has_value()) throw std::runtime_error(r.error().message);
-            result = std::move(r.value());
+        for (const auto& entry : built_legs) {
+            ir::pricers::PricingContext ctx;
+            ctx.valuation_date = asof;
+            ctx.framework = ir::pricers::PricingFramework::MultiCurve;
+            ctx.discount_curve = entry.spec.discount_curve;
+
+            if (entry.spec.type == ir::io::LegType::Ibor) {
+                ctx.ibor_forward_curve = entry.spec.fwd_curve;
+            }
+            if (entry.spec.type == ir::io::LegType::Rfr) {
+                ctx.rfr_forward_curve = entry.spec.fwd_curve;
+            }
+
+            auto leg_res = pricer.price_leg(entry.leg, md, ctx);
+            if (!leg_res.has_value()) {
+                throw std::runtime_error(
+                    "Failed pricing leg " + entry.spec.leg_id + ": " +
+                    leg_res.error().message);
+            }
+
+            total_pv += leg_res.value().pv;
+
+            for (const auto& ln : leg_res.value().lines) {
+                ResultCashflowRow row;
+                row.leg_id = entry.spec.leg_id;
+                row.leg_type = to_string_leg_type(entry.spec.type);
+                row.pay_receive = to_string_pay_receive(entry.spec.dir);
+                row.pay_date = ln.pay_date.to_iso();
+                row.amount = ln.amount;
+                row.df = ln.df;
+                row.pv = ln.pv;
+                cashflow_rows.push_back(std::move(row));
+            }
         }
-        else {
-            ir::instruments::OisSwap swap(ti, built_legs[0].second, built_legs[1].second);
-            auto r = pricer.price(swap, md, ctx);
-            if (!r.has_value()) throw std::runtime_error(r.error().message);
-            result = std::move(r.value());
-        }
 
-        // -------- Print results (cashflow + pv per coupon) --------
-        std::cout << "\n=== PV Summary ===\n";
-        std::cout << "PV Fixed Leg: " << result.pv_fixed_leg << "\n";
-        std::cout << "PV Float Leg: " << result.pv_float_leg << "\n";
-        std::cout << "PV Total    : " << result.pv << "\n";
+        // -------- Write outputs --------
+        const fs::path out_cashflows = folder / "result_cashflows.csv";
+        const fs::path out_result = folder / "result.csv";
 
-        std::cout << "\n=== Cashflows (signed) ===\n";
-        std::cout << "PayDate,Label,Amount,DF,PV\n";
-        for (const auto& ln : result.lines) {
-            std::cout << ln.pay_date.to_iso() << ","
-                << (ln.label.empty() ? "CF" : ln.label) << ","
-                << ln.amount << ","
-                << ln.df << ","
-                << ln.pv << "\n";
-        }
+        write_result_cashflows_csv(out_cashflows, cashflow_rows);
+        write_result_csv(out_result, asof, total_pv, built_legs.size(), cashflow_rows.size());
 
-        std::cout << "\nDone.\n";
+        // -------- Console summary --------
+        std::cout << "\n=== Pricing completed ===\n";
+        std::cout << "Input folder          : " << folder.string() << "\n";
+        std::cout << "Number of legs        : " << built_legs.size() << "\n";
+        std::cout << "Number of cashflows   : " << cashflow_rows.size() << "\n";
+        std::cout << "Total PV              : " << total_pv << "\n";
+        std::cout << "Wrote                 : " << out_cashflows.string() << "\n";
+        std::cout << "Wrote                 : " << out_result.string() << "\n";
+        std::cout << "Done.\n";
+
         return 0;
-
     }
     catch (const std::exception& e) {
         std::cerr << "Fatal: " << e.what() << "\n";

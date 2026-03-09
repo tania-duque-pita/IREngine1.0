@@ -68,11 +68,6 @@ namespace ir::pricers {
         return (val < pay);
     }
 
-    struct LegPVResult {
-        double pv{ 0.0 };
-        std::vector<CashflowPVLine> lines{};
-    };
-
     // Project + discount each cashflow in a leg.
     static ir::Result<LegPVResult> pv_leg_single_curve(
         const ir::instruments::Leg& leg,
@@ -238,20 +233,83 @@ namespace ir::pricers {
         return out;
     }
 
+    // ------------------------ Leg Pricer -----------------------------------
+    ir::Result<LegPVResult>
+        DiscountingSwapPricer::price_leg(const ir::instruments::Leg& leg,
+            const ir::market::MarketData& md,
+            const PricingContext& ctx) const {
+        auto discR = get_discount_curve(md, ctx.discount_curve);
+        if (!discR.has_value()) return discR.error();
+
+        if (md.fixings() == nullptr) {
+            return ir::Error::make(ir::ErrorCode::InvalidArgument,
+                "DiscountingSwapPricer::price_leg: MarketData fixings store is null.");
+        }
+
+        return pv_leg_single_curve(leg, *discR.value(), *(md.fixings()), ctx);
+    }
+
+    ir::Result<LegPVResult>
+        MultiCurveSwapPricer::price_leg(const ir::instruments::Leg& leg,
+            const ir::market::MarketData& md,
+            const PricingContext& ctx) const {
+        auto discR = get_discount_curve(md, ctx.discount_curve);
+        if (!discR.has_value()) return discR.error();
+
+        if (md.fixings() == nullptr) {
+            return ir::Error::make(ir::ErrorCode::InvalidArgument,
+                "MultiCurveSwapPricer::price_leg: MarketData fixings store is null.");
+        }
+
+        const ir::market::ForwardCurve* ibor = nullptr;
+        const ir::market::ForwardCurve* rfr = nullptr;
+
+        bool has_ibor = false;
+        bool has_rfr = false;
+
+        for (const auto& cfptr : leg.cashflows) {
+            if (!cfptr) continue;
+
+            if (cfptr->type() == ir::instruments::CashflowType::IborCoupon) {
+                has_ibor = true;
+            }
+            else if (cfptr->type() == ir::instruments::CashflowType::RfrCoupon) {
+                has_rfr = true;
+            }
+        }
+
+        if (has_ibor && has_rfr) {
+            return ir::Error::make(ir::ErrorCode::InvalidArgument,
+                "MultiCurveSwapPricer::price_leg: mixed IBOR/RFR coupons in one leg are not supported.");
+        }
+
+        if (has_ibor) {
+            auto iborR = get_forward_curve(md, ctx.ibor_forward_curve);
+            if (!iborR.has_value()) return iborR.error();
+            ibor = iborR.value();
+        }
+
+        if (has_rfr) {
+            auto rfrR = get_forward_curve(md, ctx.rfr_forward_curve);
+            if (!rfrR.has_value()) return rfrR.error();
+            rfr = rfrR.value();
+        }
+
+        return pv_leg_multi_curve(leg, *discR.value(), ibor, rfr, *(md.fixings()), ctx);
+    }
+
+
     // ------------------------ DiscountingSwapPricer ------------------------
 
     ir::Result<PricingResult>
         DiscountingSwapPricer::price(const ir::instruments::InterestRateSwap& swap,
             const ir::market::MarketData& md,
             const PricingContext& ctx) const {
-        auto discR = get_discount_curve(md, ctx.discount_curve);
-        if (!discR.has_value()) return discR.error();
-        const auto& disc = *discR.value();
 
-        auto fixedLeg = pv_leg_single_curve(swap.fixed_leg(), disc, *(md.fixings()), ctx);
+        auto fixedLeg = price_leg(swap.fixed_leg(), md, ctx);
         if (!fixedLeg.has_value()) return fixedLeg.error();
 
-        auto floatLeg = pv_leg_single_curve(swap.float_leg(), disc, *(md.fixings()), ctx);
+        auto floatLeg = price_leg(swap.float_leg(), md, ctx);
         if (!floatLeg.has_value()) return floatLeg.error();
 
         PricingResult res;
@@ -270,14 +328,11 @@ namespace ir::pricers {
         DiscountingSwapPricer::price(const ir::instruments::OisSwap& swap,
             const ir::market::MarketData& md,
             const PricingContext& ctx) const {
-        auto discR = get_discount_curve(md, ctx.discount_curve);
-        if (!discR.has_value()) return discR.error();
-        const auto& disc = *discR.value();
 
-        auto fixedLeg = pv_leg_single_curve(swap.fixed_leg(), disc, *(md.fixings()), ctx);
+        auto fixedLeg = price_leg(swap.fixed_leg(), md, ctx);
         if (!fixedLeg.has_value()) return fixedLeg.error();
 
-        auto rfrLeg = pv_leg_single_curve(swap.rfr_leg(), disc, *(md.fixings()), ctx);
+        auto rfrLeg = price_leg(swap.rfr_leg(), md, ctx);
         if (!rfrLeg.has_value()) return rfrLeg.error();
 
         PricingResult res;
@@ -298,19 +353,11 @@ namespace ir::pricers {
         MultiCurveSwapPricer::price(const ir::instruments::InterestRateSwap& swap,
             const ir::market::MarketData& md,
             const PricingContext& ctx) const {
-        auto discR = get_discount_curve(md, ctx.discount_curve);
-        if (!discR.has_value()) return discR.error();
-        const auto& disc = *discR.value();
 
-        auto iborR = get_forward_curve(md, ctx.ibor_forward_curve);
-        if (!iborR.has_value()) return iborR.error();
-
-        const auto* ibor = iborR.value();
-
-        auto fixedLeg = pv_leg_multi_curve(swap.fixed_leg(), disc, ibor, nullptr, *(md.fixings()), ctx);
+        auto fixedLeg = price_leg(swap.fixed_leg(), md, ctx);
         if (!fixedLeg.has_value()) return fixedLeg.error();
 
-        auto floatLeg = pv_leg_multi_curve(swap.float_leg(), disc, ibor, nullptr, *(md.fixings()), ctx);
+        auto floatLeg = price_leg(swap.float_leg(), md, ctx);
         if (!floatLeg.has_value()) return floatLeg.error();
 
         PricingResult res;
@@ -329,18 +376,11 @@ namespace ir::pricers {
         MultiCurveSwapPricer::price(const ir::instruments::OisSwap& swap,
             const ir::market::MarketData& md,
             const PricingContext& ctx) const {
-        auto discR = get_discount_curve(md, ctx.discount_curve);
-        if (!discR.has_value()) return discR.error();
-        const auto& disc = *discR.value();
 
-        auto rfrR = get_forward_curve(md, ctx.rfr_forward_curve);
-        if (!rfrR.has_value()) return rfrR.error();
-        const auto* rfr = rfrR.value();
-
-        auto fixedLeg = pv_leg_multi_curve(swap.fixed_leg(), disc, nullptr, rfr, *(md.fixings()), ctx);
+        auto fixedLeg = price_leg(swap.fixed_leg(), md, ctx);
         if (!fixedLeg.has_value()) return fixedLeg.error();
 
-        auto rfrLeg = pv_leg_multi_curve(swap.rfr_leg(), disc, nullptr, rfr, *(md.fixings()), ctx);
+        auto rfrLeg = price_leg(swap.rfr_leg(), md, ctx);
         if (!rfrLeg.has_value()) return rfrLeg.error();
 
         PricingResult res;

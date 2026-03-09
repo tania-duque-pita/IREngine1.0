@@ -15,52 +15,42 @@
 
 namespace ir::pricers {
 
-    // ------------------------ Pricing context ------------------------
-
     enum class PricingFramework {
-        SingleCurve,   // same curve used for discounting and projecting
-        MultiCurve     // OIS discount curve + forwarding curve(s)
+        SingleCurve,
+        MultiCurve
     };
 
     struct PricingContext {
         ir::Date valuation_date{};
-
         PricingFramework framework{ PricingFramework::MultiCurve };
 
-        // Curve selection (IDs must exist in MarketData)
         ir::CurveId discount_curve{ ir::CurveId{"DISCOUNT"} };
-
-        // Forwarding curves used for IBOR/RFR projection
-        // For v1: one ID for IBOR and one ID for RFR.
-        // Later: map IndexId -> CurveId.
         ir::CurveId ibor_forward_curve{ ir::CurveId{"FWD_IBOR"} };
         ir::CurveId rfr_forward_curve{ ir::CurveId{"FWD_RFR"} };
 
-        // Optional toggles
-        bool include_accrued{ false };   // if you later implement accrued
+        bool include_accrued{ false };
     };
-
-    // ------------------------ Results ------------------------
 
     struct CashflowPVLine {
         ir::Date pay_date{};
-        double amount{ 0.0 };           // signed amount (pay/receive applied)
+        double amount{ 0.0 };
         double df{ 0.0 };
         double pv{ 0.0 };
         std::string label{};
         std::string leg_id{};
     };
 
+    struct LegPVResult {
+        double pv{ 0.0 };
+        std::vector<CashflowPVLine> lines{};
+    };
+
     struct PricingResult {
         double pv{ 0.0 };
         double pv_fixed_leg{ 0.0 };
         double pv_float_leg{ 0.0 };
-
-        // Optional diagnostics useful for interviews/debugging
         std::vector<CashflowPVLine> lines{};
     };
-
-    // ------------------------ SwapPricer interface ------------------------
 
     class SwapPricer {
     public:
@@ -77,9 +67,6 @@ namespace ir::pricers {
                 const PricingContext& ctx) const = 0;
     };
 
-    // ------------------------ Concrete pricers ------------------------
-
-    // Single-curve: discount + projection from the same curve (simplified)
     class DiscountingSwapPricer final : public SwapPricer {
     public:
         ir::Result<PricingResult>
@@ -91,9 +78,13 @@ namespace ir::pricers {
             price(const ir::instruments::OisSwap& swap,
                 const ir::market::MarketData& md,
                 const PricingContext& ctx) const override;
+
+        ir::Result<LegPVResult>
+            price_leg(const ir::instruments::Leg& leg,
+                const ir::market::MarketData& md,
+                const PricingContext& ctx) const;
     };
 
-    // Multi-curve: discount from OIS curve, project from forwarding curves
     class MultiCurveSwapPricer final : public SwapPricer {
     public:
         ir::Result<PricingResult>
@@ -105,15 +96,15 @@ namespace ir::pricers {
             price(const ir::instruments::OisSwap& swap,
                 const ir::market::MarketData& md,
                 const PricingContext& ctx) const override;
-    };
 
-    // ------------------------ Shared helpers (header-only signatures) ------------------------
-    // These keep the implementation clean and testable.
+        ir::Result<LegPVResult>
+            price_leg(const ir::instruments::Leg& leg,
+                const ir::market::MarketData& md,
+                const PricingContext& ctx) const;
+    };
 
     double leg_sign(ir::instruments::PayReceive dir);
 
-    // Returns signed cashflow amount if determinable from fixings.
-    // For future cashflows that require projection, the pricer will compute it using curves.
     std::optional<double> signed_amount_if_known(const ir::instruments::Cashflow& cf,
         ir::instruments::PayReceive dir,
         const ir::market::FixingStore& fixings);
