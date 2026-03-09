@@ -31,8 +31,8 @@ namespace ir::io {
     }
 
     static ir::Result<PayReceive> parse_dir(const std::string& s) {
-        if (s == "PAY") return PayReceive::Pay;
-        if (s == "RECEIVE") return PayReceive::Receive;
+        if (s == "-1") return PayReceive::Pay;
+        if (s == "1") return PayReceive::Receive;
         return ir::Error::make(ir::ErrorCode::ParseError, "Unknown PayReceive: " + s);
     }
 
