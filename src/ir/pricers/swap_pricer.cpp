@@ -143,6 +143,9 @@ namespace ir::pricers {
             line.amount = signed_amt;
             line.df = df;
             line.pv = pv;
+            line.label = (cfptr->type() == ir::instruments::CashflowType::Fixed) ? "FIXED" :
+                (cfptr->type() == ir::instruments::CashflowType::IborCoupon) ? "IBOR" : "RFR";
+            line.leg_id = leg.leg_id;
             out.lines.push_back(std::move(line));
         }
 
@@ -226,6 +229,9 @@ namespace ir::pricers {
             line.amount = signed_amt;
             line.df = df;
             line.pv = pv;
+            line.label = (cfptr->type() == ir::instruments::CashflowType::Fixed) ? "FIXED" :
+                (cfptr->type() == ir::instruments::CashflowType::IborCoupon) ? "IBOR" : "RFR";
+            line.leg_id = leg.leg_id;
             out.lines.push_back(std::move(line));
         }
 

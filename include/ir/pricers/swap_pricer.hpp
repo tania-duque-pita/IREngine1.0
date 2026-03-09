@@ -48,6 +48,7 @@ namespace ir::pricers {
         double df{ 0.0 };
         double pv{ 0.0 };
         std::string label{};
+        std::string leg_id{};
     };
 
     struct PricingResult {

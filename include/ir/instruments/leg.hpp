@@ -10,6 +10,7 @@ namespace ir::instruments {
 	struct Leg {
 		PayReceive direction{ PayReceive::Pay };
 		std::vector<CashflowPtr> cashflows;
+		std::string leg_id{};
 	};
 
 } // namespace ir::instruments
