@@ -9,7 +9,6 @@
 
 #include "ir/core/conventions.hpp"
 #include "ir/core/date.hpp"
-#include "ir/io/csv_io.hpp"
 #include "ir/io/deal_io.hpp"
 #include "ir/io/market_io.hpp"
 #include "ir/market/market_data.hpp"
