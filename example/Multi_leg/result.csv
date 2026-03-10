@@ -1,0 +1,7 @@
+ValuationDate,NumLegs,NumCashflows,PV
+2025-09-30,3,18,18004.9
+
+Leg_ID,Leg_PV
+Leg1_Fx,-13029.8
+Leg2_Rfr,16625.9
+Leg3_Flt,14408.8

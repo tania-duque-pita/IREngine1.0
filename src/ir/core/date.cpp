@@ -11,6 +11,7 @@ namespace ir {
     // Operator overloading
     Date operator+(const Date& d, std::chrono::days dd) { return Date(d.raw() + dd); }
     bool operator<(const Date& a, const Date& b) { return a.raw() < b.raw(); };
+    bool operator<=(const Date& a, const Date& b) { return a.raw() <= b.raw(); };
     std::chrono::days operator-(const Date& a, const Date& b) { return static_cast<std::chrono::days>(a.raw() - b.raw()); }
 
 

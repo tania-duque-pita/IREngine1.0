@@ -13,9 +13,9 @@ namespace ir::market {
 
 	class MarketData {
 	public:
-		MarketData(ir::Date asof) : asof_(asof), fixings_{nullptr} {};
+		MarketData(ir::Date asof) : asof_(asof), fixings_{ nullptr } {};
 
-		ir::Date asof() const { return asof_;}
+		ir::Date asof() const { return asof_; }
 
 		// Curves
 		void set_discount_curve(const ir::CurveId& id, std::shared_ptr<DiscountCurve> c);
@@ -26,14 +26,12 @@ namespace ir::market {
 
 		// Quotes
 		void set_quote(const QuoteId& id, Quote q);
-		std::optional<Quote> quote(const QuoteId& id) const; //TODO: check if we should not have it as optional
+		std::optional<Quote> quote(const QuoteId& id) const;
 
-		// Fixings
-		//const FixingStore& fixings() { return fixings_; }
-		// TO DO: Pending set fixingss
-		void set_fixings(FixingStore* fixings_ptr) { fixings_=fixings_ptr; };
-		std::optional<double> fixings(const ir::IndexId& index, const ir::Date& d) const; // check if needed
-		const std::optional<FixingStore>& fixings() const { return *fixings_; } // check if needed
+		// Fixings - return pointer so caller can check for nullptr
+		void set_fixings(FixingStore* fixings_ptr) { fixings_ = fixings_ptr; };
+		std::optional<double> fixings(const ir::IndexId& index, const ir::Date& d) const;
+		const FixingStore* fixings() const { return fixings_; } // Return pointer, not reference!
 
 	private:
 		ir::Date asof_;
@@ -42,7 +40,7 @@ namespace ir::market {
 		std::unordered_map<std::string, std::shared_ptr<ForwardCurve>> forward_;
 		std::unordered_map<QuoteId, Quote> quotes_;
 
-		FixingStore* fixings_{nullptr};
+		FixingStore* fixings_{ nullptr };
 	};
 
 } // namespace ir::market
