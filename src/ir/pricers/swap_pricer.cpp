@@ -18,9 +18,24 @@ namespace ir::pricers {
         return (dir == ir::instruments::PayReceive::Pay) ? -1.0 : +1.0;
     }
 
-    std::optional<double> signed_amount_if_known(const ir::instruments::Cashflow& cf,
+    std::optional<double> signed_amount_if_known(
+        const ir::instruments::Cashflow& cf,
         ir::instruments::PayReceive dir,
-        const ir::market::FixingStore& fixings) {
+        const ir::market::FixingStore& fixings,
+        const ir::Date& valuation_date,
+        const ir::market::ForwardCurve* rfr_forward) {
+
+        if (cf.type() == ir::instruments::CashflowType::RfrCoupon) {
+            const auto* rfr_cf = dynamic_cast<const ir::instruments::RfrCompoundCoupon*>(&cf);
+            if (!rfr_cf) {
+                return std::nullopt;
+            }
+
+            auto a = rfr_cf->amount_if_known(&fixings, valuation_date, rfr_forward);
+            if (!a.has_value()) return std::nullopt;
+            return leg_sign(dir) * a.value();
+        }
+
         auto a = cf.amount_if_known(&fixings);
         if (!a.has_value()) return std::nullopt;
         return leg_sign(dir) * a.value();
@@ -68,7 +83,55 @@ namespace ir::pricers {
         return (val < pay);
     }
 
-    // Project + discount each cashflow in a leg.
+    static std::optional<double> rfr_amount_single_curve_with_cutoff(
+        const ir::instruments::RfrCompoundCoupon& cf,
+        const ir::market::FixingStore& fixings,
+        const ir::Date& valuation_date,
+        const ir::market::DiscountCurve& disc) {
+
+        const auto& obs = cf.observation();
+        const ir::Date start = obs.start;
+        const ir::Date end = obs.end;
+
+        const double tau_total = ir::year_fraction(start, end, obs.accrual_dc);
+        if (!(tau_total > 0.0)) {
+            return std::nullopt;
+        }
+
+        double compound = 1.0;
+
+        for (ir::Date d = start; d < end; d = d + std::chrono::days{ 1 }) {
+            ir::Date d_next = d + std::chrono::days{ 1 };
+            if (end < d_next) {
+                d_next = end;
+            }
+
+            const double dt = ir::year_fraction(d, d_next, obs.accrual_dc);
+            if (dt < 0.0) {
+                return std::nullopt;
+            }
+
+            double r = 0.0;
+
+            if (d < valuation_date) {
+                auto fx = fixings.get(obs.index, d);
+                if (!fx.has_value()) {
+                    return std::nullopt;
+                }
+                r = fx.value();
+            }
+            else {
+                r = forward_from_discount_curve(disc, d, d_next, obs.accrual_dc);
+            }
+
+            compound *= (1.0 + r * dt);
+        }
+
+        return cf.notional() * (compound - 1.0)
+            + cf.notional() * cf.spread() * tau_total;
+    }
+
+
     static ir::Result<LegPVResult> pv_leg_single_curve(
         const ir::instruments::Leg& leg,
         const ir::market::DiscountCurve& disc,
@@ -85,47 +148,121 @@ namespace ir::pricers {
             if (!is_payable_after_valuation(pay, ctx.valuation_date)) continue;
 
             const double df = disc.df(pay);
-
-            // Try known amount from fixings (or deterministic fixed coupon)
-            auto known = cfptr->amount_if_known(&fixings);
             double amt = 0.0;
 
-            if (known.has_value()) {
+            switch (cfptr->type()) {
+
+            case ir::instruments::CashflowType::Fixed: {
+                auto known = cfptr->amount_if_known(&fixings);
+                if (!known.has_value()) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "SingleCurve pricer: fixed cashflow amount unknown.");
+                }
                 amt = known.value();
+                break;
             }
-            else {
-                // Need projection based on CF type
-                switch (cfptr->type()) {
-                case ir::instruments::CashflowType::IborCoupon: {
+
+            case ir::instruments::CashflowType::IborCoupon: {
+                auto known = cfptr->amount_if_known(&fixings);
+
+                if (known.has_value()) {
+                    amt = known.value();
+                }
+                else {
                     auto cpn = std::dynamic_pointer_cast<ir::instruments::IborCoupon>(cfptr);
                     if (!cpn) {
-                        return ir::Error::make(ir::ErrorCode::InvalidArgument,
+                        return ir::Error::make(
+                            ir::ErrorCode::InvalidArgument,
                             "SingleCurve pricer: cashflow type mismatch (IborCoupon).");
                     }
+
                     const auto& obs = cpn->observation();
-                    const double tau = ir::year_fraction(obs.accrual_start, obs.accrual_end, obs.accrual_dc);
-                    const double fwd = forward_from_discount_curve(disc, obs.accrual_start, obs.accrual_end, obs.accrual_dc);
-                    amt = cpn->notional() * (fwd + cpn->spread()) * tau;
-                    break;
-                }
-                case ir::instruments::CashflowType::RfrCoupon: {
-                    auto cpn = std::dynamic_pointer_cast<ir::instruments::RfrCompoundCoupon>(cfptr);
-                    if (!cpn) {
-                        return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                            "SingleCurve pricer: cashflow type mismatch (RfrCompoundCoupon).");
+                    const double tau =
+                        ir::year_fraction(obs.accrual_start, obs.accrual_end, obs.accrual_dc);
+
+                    if (!(tau > 0.0)) {
+                        return ir::Error::make(
+                            ir::ErrorCode::InvalidArgument,
+                            "SingleCurve pricer: invalid IBOR accrual year fraction.");
                     }
-                    // v1 approximation: use simple forward from DF over the accrual period
-                    const auto& obs = cpn->observation();
-                    const double tau = ir::year_fraction(obs.start, obs.end, obs.accrual_dc);
-                    const double fwd = forward_from_discount_curve(disc, obs.start, obs.end, obs.accrual_dc);
+
+                    const double fwd =
+                        forward_from_discount_curve(
+                            disc,
+                            obs.accrual_start,
+                            obs.accrual_end,
+                            obs.accrual_dc);
+
                     amt = cpn->notional() * (fwd + cpn->spread()) * tau;
-                    break;
                 }
-                case ir::instruments::CashflowType::Fixed:
-                default:
-                    return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                        "SingleCurve pricer: amount unknown for cashflow.");
+                break;
+            }
+
+            case ir::instruments::CashflowType::RfrCoupon: {
+                auto cpn = std::dynamic_pointer_cast<ir::instruments::RfrCompoundCoupon>(cfptr);
+                if (!cpn) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "SingleCurve pricer: cashflow type mismatch (RfrCompoundCoupon).");
                 }
+
+                const auto& obs = cpn->observation();
+                const ir::Date start = obs.start;
+                const ir::Date end = obs.end;
+
+                const double tau_total =
+                    ir::year_fraction(start, end, obs.accrual_dc);
+
+                if (!(tau_total > 0.0)) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "SingleCurve pricer: invalid RFR accrual year fraction.");
+                }
+
+                double compound = 1.0;
+
+                for (ir::Date d = start; d < end; d = d + std::chrono::days{ 1 }) {
+                    ir::Date d_next = d + std::chrono::days{ 1 };
+                    if (end < d_next) {
+                        d_next = end;
+                    }
+
+                    const double dt = ir::year_fraction(d, d_next, obs.accrual_dc);
+                    if (dt < 0.0) {
+                        return ir::Error::make(
+                            ir::ErrorCode::InvalidArgument,
+                            "SingleCurve pricer: invalid RFR daily accrual fraction.");
+                    }
+
+                    double r = 0.0;
+
+                    if (d < ctx.valuation_date) {
+                        auto fx = fixings.get(obs.index, d);
+                        if (!fx.has_value()) {
+                            return ir::Error::make(
+                                ir::ErrorCode::InvalidArgument,
+                                "SingleCurve pricer: missing historical RFR fixing.");
+                        }
+                        r = fx.value();
+                    }
+                    else {
+                        r = forward_from_discount_curve(disc, d, d_next, obs.accrual_dc);
+                    }
+
+                    compound *= (1.0 + r * dt);
+                }
+
+                amt = cpn->notional() * (compound - 1.0)
+                    + cpn->notional() * cpn->spread() * tau_total;
+
+                break;
+            }
+
+            default:
+                return ir::Error::make(
+                    ir::ErrorCode::InvalidArgument,
+                    "SingleCurve pricer: unsupported cashflow type.");
             }
 
             const double signed_amt = sgn * amt;
@@ -139,7 +276,8 @@ namespace ir::pricers {
             line.df = df;
             line.pv = pv;
             line.label = (cfptr->type() == ir::instruments::CashflowType::Fixed) ? "FIXED" :
-                (cfptr->type() == ir::instruments::CashflowType::IborCoupon) ? "IBOR" : "RFR";
+                (cfptr->type() == ir::instruments::CashflowType::IborCoupon) ? "IBOR" :
+                "RFR";
             line.leg_id = leg.leg_id;
             out.lines.push_back(std::move(line));
         }
@@ -165,53 +303,92 @@ namespace ir::pricers {
             if (!is_payable_after_valuation(pay, ctx.valuation_date)) continue;
 
             const double df = disc.df(pay);
-
-            auto known = cfptr->amount_if_known(&fixings);
             double amt = 0.0;
 
-            if (known.has_value()) {
+            switch (cfptr->type()) {
+
+            case ir::instruments::CashflowType::Fixed: {
+                auto known = cfptr->amount_if_known(&fixings);
+                if (!known.has_value()) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "MultiCurve pricer: fixed cashflow amount unknown.");
+                }
                 amt = known.value();
+                break;
             }
-            else {
-                switch (cfptr->type()) {
-                case ir::instruments::CashflowType::IborCoupon: {
-                    if (!ibor_fwd) {
-                        return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                            "MultiCurve pricer: IBOR forward curve is null.");
-                    }
+
+            case ir::instruments::CashflowType::IborCoupon: {
+                auto known = cfptr->amount_if_known(&fixings);
+
+                if (known.has_value()) {
+                    amt = known.value();
+                }
+                else {
                     auto cpn = std::dynamic_pointer_cast<ir::instruments::IborCoupon>(cfptr);
                     if (!cpn) {
-                        return ir::Error::make(ir::ErrorCode::InvalidArgument,
+                        return ir::Error::make(
+                            ir::ErrorCode::InvalidArgument,
                             "MultiCurve pricer: cashflow type mismatch (IborCoupon).");
                     }
-                    const auto& obs = cpn->observation();
-                    const double tau = ir::year_fraction(obs.accrual_start, obs.accrual_end, obs.accrual_dc);
-                    const double fwd = ibor_fwd->forward_rate(obs.accrual_start, obs.accrual_end, obs.accrual_dc);
-                    amt = cpn->notional() * (fwd + cpn->spread()) * tau;
-                    break;
-                }
-                case ir::instruments::CashflowType::RfrCoupon: {
-                    if (!rfr_fwd) {
-                        return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                            "MultiCurve pricer: RFR forward curve is null.");
+
+                    if (!ibor_fwd) {
+                        return ir::Error::make(
+                            ir::ErrorCode::InvalidArgument,
+                            "MultiCurve pricer: IBOR forward curve is null.");
                     }
-                    auto cpn = std::dynamic_pointer_cast<ir::instruments::RfrCompoundCoupon>(cfptr);
-                    if (!cpn) {
-                        return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                            "MultiCurve pricer: cashflow type mismatch (RfrCompoundCoupon).");
-                    }
-                    // v1 approximation: use forward over accrual period (simple)
+
                     const auto& obs = cpn->observation();
-                    const double tau = ir::year_fraction(obs.start, obs.end, obs.accrual_dc);
-                    const double fwd = rfr_fwd->forward_rate(obs.start, obs.end, obs.accrual_dc);
+                    const double tau =
+                        ir::year_fraction(obs.accrual_start, obs.accrual_end, obs.accrual_dc);
+
+                    if (!(tau > 0.0)) {
+                        return ir::Error::make(
+                            ir::ErrorCode::InvalidArgument,
+                            "MultiCurve pricer: invalid IBOR accrual year fraction.");
+                    }
+
+                    const double fwd =
+                        ibor_fwd->forward_rate(obs.accrual_start, obs.accrual_end, obs.accrual_dc);
+
                     amt = cpn->notional() * (fwd + cpn->spread()) * tau;
-                    break;
                 }
-                case ir::instruments::CashflowType::Fixed:
-                default:
-                    return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                        "MultiCurve pricer: amount unknown for cashflow.");
+                break;
+            }
+
+            case ir::instruments::CashflowType::RfrCoupon: {
+                auto cpn = std::dynamic_pointer_cast<ir::instruments::RfrCompoundCoupon>(cfptr);
+                if (!cpn) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "MultiCurve pricer: cashflow type mismatch (RfrCompoundCoupon).");
                 }
+
+                if (!rfr_fwd) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "MultiCurve pricer: RFR forward curve is null.");
+                }
+
+                // Hybrid logic:
+                // - use fixings for d < valuation_date
+                // - use forward projection for d >= valuation_date
+                auto hybrid_amt = cpn->amount_if_known(&fixings, ctx.valuation_date, rfr_fwd);
+
+                if (!hybrid_amt.has_value()) {
+                    return ir::Error::make(
+                        ir::ErrorCode::InvalidArgument,
+                        "MultiCurve pricer: unable to determine/project RFR coupon amount.");
+                }
+
+                amt = hybrid_amt.value();
+                break;
+            }
+
+            default:
+                return ir::Error::make(
+                    ir::ErrorCode::InvalidArgument,
+                    "MultiCurve pricer: unsupported cashflow type.");
             }
 
             const double signed_amt = sgn * amt;
@@ -225,7 +402,8 @@ namespace ir::pricers {
             line.df = df;
             line.pv = pv;
             line.label = (cfptr->type() == ir::instruments::CashflowType::Fixed) ? "FIXED" :
-                (cfptr->type() == ir::instruments::CashflowType::IborCoupon) ? "IBOR" : "RFR";
+                (cfptr->type() == ir::instruments::CashflowType::IborCoupon) ? "IBOR" :
+                "RFR";
             line.leg_id = leg.leg_id;
             out.lines.push_back(std::move(line));
         }

@@ -1,6 +1,8 @@
 #include "ir/io/deal_io.hpp"
 
 #include <stdexcept>
+#include <string>
+#include <algorithm>
 
 #include "ir/core/error.hpp"
 #include "ir/io/csv_io.hpp"
@@ -39,6 +41,16 @@ namespace ir::io {
     static ir::Result<ir::DayCount> parse_dc(const std::string& s) {
         if (s == "ACT360") return ir::DayCount::ACT360;
         if (s == "ACT365") return ir::DayCount::ACT365;
+        if (s == "THIRTY360") return ir::DayCount::THIRTY360;
+        if (s=="") return ir::DayCount::ACT365;
+        return ir::Error::make(ir::ErrorCode::ParseError, "Unknown Day_Convention: " + s);
+    }
+
+    static ir::Result<ir::BusinessDayConvention> parse_bdc(const std::string& s) {
+        if (s == "Following") return ir::BusinessDayConvention::Following;
+        if (s == "ModifiedFollowing") return ir::BusinessDayConvention::ModifiedFollowing;
+        if (s == "Preceding") return ir::BusinessDayConvention::Preceding;
+        if (s=="") return ir::BusinessDayConvention::ModifiedFollowing;
         return ir::Error::make(ir::ErrorCode::ParseError, "Unknown Day_Convention: " + s);
     }
 
@@ -79,9 +91,13 @@ namespace ir::io {
                 return ir::Error::make(ir::ErrorCode::ParseError, "Frequency is mandatory.");
             }
 
-            auto dc = parse_dc(r.at("Day_Convention"));
+            auto dc = parse_dc(r.at("DayCountConvention"));
             if (!dc.has_value()) return dc.error();
             s.dc = dc.value();
+
+            auto bdc = parse_bdc(r.at("BusDayConvention"));
+            if (!bdc.has_value()) return bdc.error();
+            s.bdc = bdc.value();
 
             // Basic validation
             if (s.notional == 0.0) {

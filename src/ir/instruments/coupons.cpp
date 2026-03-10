@@ -1,10 +1,10 @@
 #include "ir/instruments/coupons.hpp"
 
 #include <chrono>
-#include <cmath>
+#include <optional>
 
 #include "ir/core/date.hpp"
-#include "ir/core/error.hpp"
+#include "ir/market/curves.hpp"
 
 namespace ir::instruments {
 
@@ -14,24 +14,18 @@ namespace ir::instruments {
         : pay_date_(pay_date), amount_(amount) {
     }
 
-    std::optional<double> FixedCoupon::amount_if_known(const ir::market::FixingStore* fixings) const {
-        return amount_; // always deterministic
+    std::optional<double> FixedCoupon::amount_if_known(const ir::market::FixingStore* /*fixings*/) const {
+        return amount_;
     }
 
     // ===================== IborCoupon =====================
 
-    IborCoupon::IborCoupon(ir::Date pay_date,
-        double notional,
-        double spread,
-        IborObservation obs)
-        : pay_date_(pay_date),
-        notional_(notional),
-        spread_(spread),
-        obs_(std::move(obs)) {
+    IborCoupon::IborCoupon(ir::Date pay_date, double notional, double spread, IborObservation obs)
+        : pay_date_(pay_date), notional_(notional), spread_(spread), obs_(std::move(obs)) {
     }
 
     std::optional<double> IborCoupon::amount_if_known(const ir::market::FixingStore* fixings) const {
-        if (!fixings) return std::nullopt; // Now we can check for nullptr!
+        if (!fixings) return std::nullopt;
 
         auto fx = fixings->get(obs_.index, obs_.fixing_date);
         if (!fx.has_value()) return std::nullopt;
@@ -44,53 +38,78 @@ namespace ir::instruments {
     }
 
     // ===================== RfrCompoundCoupon =====================
-    // v1 simplifying assumptions:
-    // - requires a fixing for *every calendar day* in [start, end)
-    // - no weekend/holiday lookback logic (TODO later)
-    // - compounding: ?(1 + r_i * dt_i)
-    // - equivalent compounded rate: (compound_factor - 1) / tau_total
-    // - amount: notional * (comp_rate + spread) * tau_total
-    //
-    // If any fixing is missing, returns nullopt.
 
-    RfrCompoundCoupon::RfrCompoundCoupon(ir::Date pay_date,
-        double notional,
-        double spread,
-        RfrObservation obs)
-        : pay_date_(pay_date),
-        notional_(notional),
-        spread_(spread),
-        obs_(std::move(obs)) {
+    RfrCompoundCoupon::RfrCompoundCoupon(ir::Date pay_date, double notional, double spread, RfrObservation obs)
+        : pay_date_(pay_date), notional_(notional), spread_(spread), obs_(std::move(obs)) {
     }
 
+    // Existing behavior: all dates must be fixed.
+    // Delegate to the hybrid overload with cutoff=end and no forward needed.
     std::optional<double> RfrCompoundCoupon::amount_if_known(const ir::market::FixingStore* fixings) const {
-        const auto start = obs_.start;
-        const auto end = obs_.end;
-        if (!fixings) return std::nullopt; // Now we can check for nullptr!
+        return amount_if_known(fixings, obs_.end, nullptr);
+    }
+
+    // Hybrid OIS amount:
+// - realized portion compounded from historical daily fixings
+// - remaining portion approximated using one simple forward rate over [cutoff_eff, end]
+    std::optional<double> RfrCompoundCoupon::amount_if_known(
+        const ir::market::FixingStore* fixings,
+        const ir::Date& cutoff,
+        const ir::market::ForwardCurve* forward) const {
+
+        const ir::Date start = obs_.start;
+        const ir::Date end = obs_.end;
+        const ir::Date cutoff_eff = std::min(cutoff, end);
 
         const double tau_total = ir::year_fraction(start, end, obs_.accrual_dc);
-        if (!(tau_total > 0.0)) return std::nullopt;
+        if (!(tau_total > 0.0)) {
+            return std::nullopt;
+        }
 
         double compound = 1.0;
 
-        // iterate day by day: [d, d+1)
-        for (ir::Date d = start; d < end; d = d + std::chrono::days{ 1 }) {
-            const ir::Date d_next = d + std::chrono::days{ 1 };
-            if (!(d_next <= end)) break; // safety
-
-            auto fx = fixings->get(obs_.index, d);
-            if (!fx.has_value()) return std::nullopt;
+        // Realized part: [start, cutoff_eff)
+        for (ir::Date d = start; d < cutoff_eff; d = d + std::chrono::days{ 1 }) {
+            ir::Date d_next = d + std::chrono::days{ 1 };
+            if (cutoff_eff < d_next) {
+                d_next = cutoff_eff;
+            }
 
             const double dt = ir::year_fraction(d, d_next, obs_.accrual_dc);
-            if (dt < 0.0) return std::nullopt;
+            if (dt < 0.0) {
+                return std::nullopt;
+            }
+
+            if (!fixings) {
+                return std::nullopt;
+            }
+
+            auto fx = fixings->get(obs_.index, d);
+            if (!fx.has_value()) {
+                return std::nullopt;
+            }
 
             compound *= (1.0 + fx.value() * dt);
         }
 
-        const double comp_rate = (compound - 1.0) / tau_total;
-        const double total_rate = comp_rate + spread_;
+        // Projected part: [max(start, cutoff_eff), end]
+        const ir::Date proj_start = (start < cutoff_eff) ? cutoff_eff : start;
 
-        return notional_ * total_rate * tau_total;
+        if (proj_start < end) {
+            if (!forward) {
+                return std::nullopt;
+            }
+
+            const double tau_f = ir::year_fraction(proj_start, end, obs_.accrual_dc);
+            if (tau_f < 0.0) {
+                return std::nullopt;
+            }
+
+            const double r_f = forward->forward_rate(proj_start, end, obs_.accrual_dc);
+            compound *= (1.0 + r_f * tau_f);
+        }
+
+        return notional_ * (compound - 1.0) + notional_ * spread_ * tau_total;
     }
 
 } // namespace ir::instruments

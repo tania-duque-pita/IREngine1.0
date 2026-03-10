@@ -41,8 +41,8 @@ static std::string to_string_leg_type(ir::io::LegType t) {
     }
 }
 
-static std::string to_string_pay_receive(ir::io::PayReceive d) {
-    return (d == ir::io::PayReceive::Pay) ? "PAY" : "RECEIVE";
+static int to_int_pay_receive(ir::io::PayReceive d) {
+    return (d == ir::io::PayReceive::Pay) ? -1 : 1;
 }
 
 static fs::path find_repo_root_from_cwd() {
@@ -58,7 +58,7 @@ static fs::path find_repo_root_from_cwd() {
             return p;
         }
 
-        fs::path parent = p.parent_path();
+        const fs::path parent = p.parent_path();
         if (parent == p) {
             break;
         }
@@ -77,39 +77,37 @@ static fs::path resolve_input_folder(int argc, char** argv) {
             "  ire_price --example <folder_name>\n");
     }
 
-    const std::string mode = argv[1];
+    const std::string arg1 = argv[1];
 
-    // Existing local-folder mode
-    if (mode != "--example") {
-        return fs::path(argv[1]);
+    if (arg1 == "--example") {
+        if (argc < 3) {
+            throw std::runtime_error("Usage: ire_price --example <folder_name>");
+        }
+
+        const std::string folder_name = argv[2];
+        const fs::path repo_root = find_repo_root_from_cwd();
+        const fs::path folder = repo_root / "example" / folder_name;
+
+        if (!fs::exists(folder)) {
+            throw std::runtime_error(
+                "Example folder does not exist: " + folder.string());
+        }
+
+        return folder;
     }
 
-    // Repo-relative example mode
-    if (argc < 3) {
-        throw std::runtime_error("Usage: ire_price --example <folder_name>");
-    }
-
-    const std::string folder_name = argv[2];
-    const fs::path repo_root = find_repo_root_from_cwd();
-    const fs::path example_folder = repo_root / "example" / folder_name;
-
-    if (!fs::exists(example_folder)) {
-        throw std::runtime_error(
-            "Example folder does not exist: " + example_folder.string());
-    }
-
-    return example_folder;
+    return fs::path(arg1);
 }
 
 struct BuiltLegEntry {
-    ir::io::DealSpec spec;
+    ir::io::LegSpec spec;
     ir::instruments::Leg leg;
 };
 
 struct ResultCashflowRow {
     std::string leg_id;
     std::string leg_type;
-    std::string pay_receive;
+    int pay_receive{1};
     std::string pay_date;
     double amount{ 0.0 };
     double df{ 0.0 };
@@ -142,7 +140,7 @@ static void write_result_csv(
     const fs::path& out_file,
     const ir::Date& valuation_date,
     double total_pv,
-    std::size_t num_legs,
+    const std::vector<std::pair<std::string, double>>& leg_pvs,
     std::size_t num_cashflows) {
 
     std::ofstream out(out_file);
@@ -153,9 +151,14 @@ static void write_result_csv(
 
     out << "ValuationDate,NumLegs,NumCashflows,PV\n";
     out << valuation_date.to_iso() << ","
-        << num_legs << ","
+        << leg_pvs.size() << ","
         << num_cashflows << ","
         << total_pv << "\n";
+
+    out << "\nLeg_ID,Leg_PV\n";
+    for (const auto& [leg_id, pv] : leg_pvs) {
+        out << leg_id << "," << pv << "\n";
+    }
 }
 
 int main(int argc, char** argv) {
@@ -163,12 +166,12 @@ int main(int argc, char** argv) {
         const fs::path folder = resolve_input_folder(argc, argv);
 
         // -------- Load deal_data.csv --------
-        auto dealRes = ir::io::read_deal_data_csv((folder / "deal_data.csv").string());
-        if (!dealRes.has_value()) {
-            throw std::runtime_error(dealRes.error().message);
+        auto deal_res = ir::io::read_deal_data_csv((folder / "deal_data.csv").string());
+        if (!deal_res.has_value()) {
+            throw std::runtime_error(deal_res.error().message);
         }
-        ir::io::DealSpec deal = dealRes.value();
 
+        ir::io::DealSpec deal = deal_res.value();
         if (deal.legs.empty()) {
             throw std::runtime_error("Deal has no legs.");
         }
@@ -178,16 +181,15 @@ int main(int argc, char** argv) {
         ir::market::MarketData md(asof);
         ir::market::FixingStore fixings;
 
+        // discount.csv remains mandatory
         const auto& discount_id = deal.legs.front().discount_curve;
-
-        {
-            auto r = ir::io::load_discount_curve_nodes_csv(
-                (folder / "discount.csv").string(), discount_id, md);
-            if (!r.has_value()) {
-                throw std::runtime_error(r.error().message);
-            }
+        auto disc_res = ir::io::load_discount_curve_nodes_csv(
+            (folder / "discount.csv").string(), discount_id, md);
+        if (!disc_res.has_value()) {
+            throw std::runtime_error(disc_res.error().message);
         }
 
+        // -------- Load forward curves and optional fixings --------
         std::unordered_map<std::string, ir::IndexId> fixings_map;
         std::unordered_map<std::string, bool> loaded_fwd;
 
@@ -201,10 +203,10 @@ int main(int argc, char** argv) {
                 const std::string fwd_file = leg.fwd_curve.value + ".csv";
 
                 if (!loaded_fwd[leg.fwd_curve.value]) {
-                    auto r = ir::io::load_forward_curve_nodes_csv(
+                    auto fwd_res = ir::io::load_forward_curve_nodes_csv(
                         (folder / fwd_file).string(), leg.fwd_curve, md);
-                    if (!r.has_value()) {
-                        throw std::runtime_error(r.error().message);
+                    if (!fwd_res.has_value()) {
+                        throw std::runtime_error(fwd_res.error().message);
                     }
                     loaded_fwd[leg.fwd_curve.value] = true;
                 }
@@ -218,68 +220,68 @@ int main(int argc, char** argv) {
         for (const auto& [fix_id, index] : fixings_map) {
             const fs::path p = folder / (fix_id + ".csv");
             if (fs::exists(p)) {
-                auto r = ir::io::load_fixings_csv(p.string(), index, fixings);
-                if (!r.has_value()) {
-                    throw std::runtime_error(r.error().message);
+                auto fix_res = ir::io::load_fixings_csv(p.string(), index, fixings);
+                if (!fix_res.has_value()) {
+                    throw std::runtime_error(fix_res.error().message);
                 }
             }
         }
 
         md.set_fixings(&fixings);
 
-        // -------- Build all legs --------
+        // -------- Build legs --------
         ir::Calendar cal;
-        auto bdc = ir::BusinessDayConvention::ModifiedFollowing;
+        const auto bdc = ir::BusinessDayConvention::ModifiedFollowing;
 
         std::vector<BuiltLegEntry> built_legs;
         built_legs.reserve(deal.legs.size());
 
-        for (const auto& leg : deal.legs) {
+        for (const auto& leg_spec : deal.legs) {
             ir::ScheduleConfig sc;
-            sc.start = leg.start;
-            sc.end = leg.end;
-            sc.tenor = parse_tenor_or_throw(leg.frequency);
+            sc.start = leg_spec.start;
+            sc.end = leg_spec.end;
+            sc.tenor = parse_tenor_or_throw(leg_spec.frequency);
             sc.calendar = cal;
             sc.bdc = bdc;
             sc.rule = ir::DateGenerationRule::Backward;
 
             auto sched = ir::make_schedule(sc);
 
-            if (leg.type == ir::io::LegType::Fixed) {
+            if (leg_spec.type == ir::io::LegType::Fixed) {
                 ir::instruments::FixedLegConfig cfg;
-                cfg.notional = leg.notional;
-                cfg.fixed_rate = leg.fixed_rate;
-                cfg.dc = leg.dc;
+                cfg.notional = leg_spec.notional;
+                cfg.fixed_rate = leg_spec.fixed_rate;
+                cfg.dc = leg_spec.dc;
 
-                auto L = ir::instruments::LegBuilder::build_fixed_leg(
-                    to_instr_dir(leg.dir), sched, cfg);
+                auto leg = ir::instruments::LegBuilder::build_fixed_leg(
+                    to_instr_dir(leg_spec.dir), sched, cfg);
 
-                built_legs.push_back(BuiltLegEntry{ leg, std::move(L) });
+                built_legs.push_back(BuiltLegEntry{ leg_spec, std::move(leg) });
             }
-            else if (leg.type == ir::io::LegType::Ibor) {
+            else if (leg_spec.type == ir::io::LegType::Ibor) {
                 ir::instruments::IborLegConfig cfg;
-                cfg.notional = leg.notional;
-                cfg.spread = leg.spread;
-                cfg.index = leg.index;
-                cfg.dc = leg.dc;
+                cfg.notional = leg_spec.notional;
+                cfg.spread = leg_spec.spread;
+                cfg.index = leg_spec.index;
+                cfg.dc = leg_spec.dc;
                 cfg.fixing_lag_days = 2;
 
-                auto L = ir::instruments::LegBuilder::build_ibor_leg(
-                    to_instr_dir(leg.dir), sched, cfg, cal, bdc);
+                auto leg = ir::instruments::LegBuilder::build_ibor_leg(
+                    to_instr_dir(leg_spec.dir), sched, cfg, cal, bdc);
 
-                built_legs.push_back(BuiltLegEntry{ leg, std::move(L) });
+                built_legs.push_back(BuiltLegEntry{ leg_spec, std::move(leg) });
             }
             else {
                 ir::instruments::RfrLegConfig cfg;
-                cfg.notional = leg.notional;
-                cfg.spread = leg.spread;
-                cfg.index = leg.index;
-                cfg.dc = leg.dc;
+                cfg.notional = leg_spec.notional;
+                cfg.spread = leg_spec.spread;
+                cfg.index = leg_spec.index;
+                cfg.dc = leg_spec.dc;
 
-                auto L = ir::instruments::LegBuilder::build_rfr_compound_leg(
-                    to_instr_dir(leg.dir), sched, cfg);
+                auto leg = ir::instruments::LegBuilder::build_rfr_compound_leg(
+                    to_instr_dir(leg_spec.dir), sched, cfg);
 
-                built_legs.push_back(BuiltLegEntry{ leg, std::move(L) });
+                built_legs.push_back(BuiltLegEntry{ leg_spec, std::move(leg) });
             }
         }
 
@@ -287,6 +289,7 @@ int main(int argc, char** argv) {
         ir::pricers::MultiCurveSwapPricer pricer;
 
         double total_pv = 0.0;
+        std::vector<std::pair<std::string, double>> leg_pvs;
         std::vector<ResultCashflowRow> cashflow_rows;
 
         for (const auto& entry : built_legs) {
@@ -298,7 +301,7 @@ int main(int argc, char** argv) {
             if (entry.spec.type == ir::io::LegType::Ibor) {
                 ctx.ibor_forward_curve = entry.spec.fwd_curve;
             }
-            if (entry.spec.type == ir::io::LegType::Rfr) {
+            else if (entry.spec.type == ir::io::LegType::Rfr) {
                 ctx.rfr_forward_curve = entry.spec.fwd_curve;
             }
 
@@ -310,35 +313,35 @@ int main(int argc, char** argv) {
             }
 
             total_pv += leg_res.value().pv;
+            leg_pvs.push_back({ entry.spec.leg_id, leg_res.value().pv });
 
-            for (const auto& ln : leg_res.value().lines) {
+            for (const auto& line : leg_res.value().lines) {
                 ResultCashflowRow row;
                 row.leg_id = entry.spec.leg_id;
                 row.leg_type = to_string_leg_type(entry.spec.type);
-                row.pay_receive = to_string_pay_receive(entry.spec.dir);
-                row.pay_date = ln.pay_date.to_iso();
-                row.amount = ln.amount;
-                row.df = ln.df;
-                row.pv = ln.pv;
+                row.pay_receive = to_int_pay_receive(entry.spec.dir);
+                row.pay_date = line.pay_date.to_iso();
+                row.amount = line.amount;
+                row.df = line.df;
+                row.pv = line.pv;
                 cashflow_rows.push_back(std::move(row));
             }
         }
 
         // -------- Write outputs --------
-        const fs::path out_cashflows = folder / "result_cashflows.csv";
-        const fs::path out_result = folder / "result.csv";
+        const fs::path result_cashflows_file = folder / "result_cashflows.csv";
+        const fs::path result_file = folder / "result.csv";
 
-        write_result_cashflows_csv(out_cashflows, cashflow_rows);
-        write_result_csv(out_result, asof, total_pv, built_legs.size(), cashflow_rows.size());
+        write_result_cashflows_csv(result_cashflows_file, cashflow_rows);
+        write_result_csv(result_file, asof, total_pv, leg_pvs, cashflow_rows.size());
 
-        // -------- Console summary --------
         std::cout << "\n=== Pricing completed ===\n";
-        std::cout << "Input folder          : " << folder.string() << "\n";
-        std::cout << "Number of legs        : " << built_legs.size() << "\n";
-        std::cout << "Number of cashflows   : " << cashflow_rows.size() << "\n";
-        std::cout << "Total PV              : " << total_pv << "\n";
-        std::cout << "Wrote                 : " << out_cashflows.string() << "\n";
-        std::cout << "Wrote                 : " << out_result.string() << "\n";
+        std::cout << "Input folder        : " << folder.string() << "\n";
+        std::cout << "Number of legs      : " << built_legs.size() << "\n";
+        std::cout << "Number of cashflows : " << cashflow_rows.size() << "\n";
+        std::cout << "Total PV            : " << total_pv << "\n";
+        std::cout << "Wrote               : " << result_cashflows_file.string() << "\n";
+        std::cout << "Wrote               : " << result_file.string() << "\n";
         std::cout << "Done.\n";
 
         return 0;

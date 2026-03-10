@@ -19,28 +19,6 @@
 
 namespace ir::io {
 
-    ir::Result<std::string> fetch_text_from_url(const std::string& url) {
-        // Minimal fallback using system curl:
-        // curl -L -s "<url>"
-        // This works on many machines (Git Bash, WSL, macOS, Linux).
-        // On Windows PowerShell, curl often exists as an alias; you may need curl.exe.
-        const std::string tmp = "ire_tmp_download.csv";
-        std::string cmd = "curl -L -s \"" + url + "\" -o " + tmp;
-        int rc = std::system(cmd.c_str());
-        if (rc != 0) {
-            return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                "Failed to fetch URL (curl): " + url);
-        }
-        std::ifstream in(tmp);
-        if (!in) {
-            return ir::Error::make(ir::ErrorCode::InvalidArgument,
-                "Failed to open temp file after download.");
-        }
-        std::ostringstream buffer;
-        buffer << in.rdbuf();
-        return buffer.str();
-    }
-
     static ir::Result<ir::Date> parse_iso_date(const std::string& s) {
         auto d = ir::Date::parse_iso(s);
         if (!d.has_value()) return d.error();

@@ -105,8 +105,13 @@ namespace ir::pricers {
 
     double leg_sign(ir::instruments::PayReceive dir);
 
-    std::optional<double> signed_amount_if_known(const ir::instruments::Cashflow& cf,
+    // For fixed/IBOR cashflows this behaves like before.
+    // For RFR coupons it can use fixings for d < valuation_date and projection for d >= valuation_date.
+    std::optional<double> signed_amount_if_known(
+        const ir::instruments::Cashflow& cf,
         ir::instruments::PayReceive dir,
-        const ir::market::FixingStore& fixings);
+        const ir::market::FixingStore& fixings,
+        const ir::Date& valuation_date,
+        const ir::market::ForwardCurve* rfr_forward);
 
 } // namespace ir::pricers

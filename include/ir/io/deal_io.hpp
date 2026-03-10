@@ -32,6 +32,7 @@ namespace ir::io {
 
 		std::string frequency;       // "3M" "6M" "1Y"
 		ir::DayCount dc{ ir::DayCount::ACT365 };
+		ir::BusinessDayConvention bdc{ ir::BusinessDayConvention::ModifiedFollowing };
 	};
 
 	struct DealSpec {

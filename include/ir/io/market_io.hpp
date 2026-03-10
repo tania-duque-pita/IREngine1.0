@@ -22,7 +22,4 @@ namespace ir::io {
         const ir::IndexId& index,
         ir::market::FixingStore& store);
 
-    // GitHub raw mode (base URL to folder)
-    ir::Result<std::string> fetch_text_from_url(const std::string& url);
-
 } // namespace ir::io

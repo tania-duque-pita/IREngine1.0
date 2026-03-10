@@ -8,9 +8,9 @@
 
 namespace ir::instruments {
 
-    static double sign(PayReceive dir) {
-        return (dir == PayReceive::Pay) ? -1.0 : +1.0;
-    }
+    //static double sign(PayReceive dir) {
+    //    return (dir == PayReceive::Pay) ? -1.0 : +1.0;
+    //}
 
     Leg LegBuilder::build_fixed_leg(PayReceive dir,
         const ir::Schedule& schedule,

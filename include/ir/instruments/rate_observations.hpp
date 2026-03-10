@@ -24,7 +24,7 @@ namespace ir::instruments {
 		ir::DayCount accrual_dc{ ir::DayCount::ACT360 };
 
 		// In v1 keep compounding convention minimal.
-		// Later you can add: lookback, lockout, payment lag, averaging vs compounding.
+		// Later I can add: lookback, lockout, payment lag, averaging vs compounding.
 	};
 
 } // namespace ir::instruments
