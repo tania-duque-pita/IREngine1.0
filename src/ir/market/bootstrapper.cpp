@@ -4,6 +4,7 @@
 #include <limits>
 #include <memory>
 #include <vector>
+#include <cmath>
 
 #include "ir/core/error.hpp"
 #include "ir/utils/piecewise_nodes.hpp"
